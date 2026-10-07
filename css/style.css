@@ -228,28 +228,87 @@ a { color: inherit; }
 .note--left { left: max(24px, calc(50% - 470px)); bottom: 6px; display: flex; align-items: flex-end; gap: 6px; transform: rotate(-4deg); }
 .note--left svg { width: 56px; }
 
-/* 상황 입력 */
+/* 상황 입력: 문장 + 카드로 고른 상황 태그를 한 칸에 */
 .ask {
   display: flex;
+  align-items: flex-end;
   gap: 8px;
-  max-width: 580px;
+  max-width: 640px;
   margin: 30px auto 0;
-  padding: 6px;
-  border-radius: 999px;
+  padding: 7px;
+  border-radius: 30px;
   background: var(--surface);
   box-shadow: var(--shadow), inset 0 0 0 1.5px var(--line);
+  text-align: left;
 }
 .ask:focus-within { box-shadow: var(--shadow), inset 0 0 0 2px var(--ink); }
-.ask__input {
+.ask__field {
   flex: 1;
   min-width: 0;
-  padding: 0 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 10px;
+  min-height: 44px;
+}
+.ask__tokens { display: contents; list-style: none; }
+.token {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 4px 0 10px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--bg);
+  font-size: 13.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  animation: token-in .25s var(--ease);
+}
+/* 문장에서 알아챈 상황은 옅은 빨간색, 카드로 고른 상황은 검정 */
+.token--auto { background: var(--accent-soft); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.token button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  color: inherit;
+}
+.token button:hover { background: var(--accent); color: #fff; }
+@keyframes token-in { from { transform: scale(.85); opacity: 0; } }
+.ask__input {
+  flex: 1 1 180px;
+  min-width: 120px;
+  height: 36px;
+  padding: 0 6px;
   border: 0;
   background: transparent;
   font-size: 16px;
   outline: none;
 }
 .ask__input::placeholder { color: var(--muted); opacity: .8; }
+.ask__clear {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.ask__clear[hidden] { display: none; }
+.ask__clear svg { width: 16px; height: 16px; }
+.ask__clear:hover { color: var(--ink); }
+.ask > .btn { flex: none; min-height: 46px; }
 
 /* 조건 토글 */
 .conds { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; margin-top: 16px; }
@@ -346,19 +405,6 @@ a { color: inherit; }
 .sit-card:focus-visible { outline: 3px solid var(--ink); outline-offset: 4px; }
 
 
-.picked { min-height: 1.6em; margin-top: 12px; text-align: center; font-size: 14px; font-weight: 600; color: var(--muted); }
-.picked b { color: var(--ink); }
-.picked a { margin-left: 8px; font-weight: 700; color: var(--ink); text-underline-offset: 3px; }
-.picked button {
-  margin-left: 10px;
-  border: 0;
-  background: none;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--accent);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
 
 /* =========================================================
    공통 섹션
@@ -401,7 +447,7 @@ a { color: inherit; }
   text-align: center;
 }
 .rec-empty p { font-size: 16px; color: var(--muted); line-height: 1.6; }
-.rec-empty .quick { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 16px; }
+.rec-empty .btn { margin-top: 16px; }
 
 .rec-top { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
 .pick {
@@ -670,9 +716,9 @@ body.has-tray .footer { padding-bottom: 140px; }
   .nav__links { display: none; }
   .hero { padding: 20px 16px 0; }
   .hero__lead { font-size: 15.5px; }
-  .ask { flex-direction: column; border-radius: 24px; padding: 8px; }
-  .ask__input { height: 46px; }
-  .ask .btn { width: 100%; }
+  .ask { flex-direction: column; align-items: stretch; border-radius: 24px; padding: 8px; }
+  .ask__input { height: 40px; }
+  .ask > .btn { width: 100%; }
   .arc { height: 260px; }
   .sit-card { width: 144px; height: 200px; margin-left: -72px; top: 24px; }
   .sit-card__emoji { font-size: 34px; }

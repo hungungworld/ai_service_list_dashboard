@@ -50,8 +50,14 @@
       </p>
 
       <form id="ask-form" class="ask" autocomplete="off">
-        <label for="ask-input" class="sr-only">지금 어떤 상황인가요?</label>
-        <input id="ask-input" class="ask__input" type="text" placeholder="예: 내일 발표인데 PPT가 하나도 없어요">
+        <div class="ask__field">
+          <ul class="ask__tokens" id="ask-tokens" aria-label="담긴 상황" aria-live="polite"></ul>
+          <label for="ask-input" class="sr-only">지금 어떤 상황인가요? 문장을 적거나 아래 카드를 눌러 담으세요</label>
+          <input id="ask-input" class="ask__input" type="text" placeholder="예: 내일 발표인데 PPT가 하나도 없어요">
+          <button class="ask__clear" type="button" id="ask-clear" aria-label="담긴 상황과 문장 모두 지우기" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+          </button>
+        </div>
         <button class="btn btn--accent" type="submit">추천받기</button>
       </form>
 
@@ -68,9 +74,8 @@
       <div class="arc" id="arc" role="group" aria-label="상황 카드. 여러 개 골라도 됩니다"></div>
       <p class="note note--left" aria-hidden="true">
         <svg viewBox="0 0 70 60"><path d="M60 50 C 50 24, 34 12, 8 10 M8 10 l 12 -8 M8 10 l 10 10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        카드를 눌러 골라요
+        누르면 위 칸에 담겨요
       </p>
-      <p class="picked" id="picked" aria-live="polite"></p>
     </section>
 
     <!-- ===== 추천 결과 ===== -->

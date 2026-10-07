@@ -9,7 +9,7 @@ const services = [
   {
     "id": 1,
     "name": "Google Flow (Veo)",
-    "category": "동영상 생성",
+    "category": "동영상 생성·편집",
     "desc": "Google의 Veo 3.1 모델로 영상을 만드는 제작 도구",
     "url": "https://flow.google.com/",
     "price": [
@@ -35,7 +35,7 @@ const services = [
   {
     "id": 2,
     "name": "Kling",
-    "category": "동영상 생성",
+    "category": "동영상 생성·편집",
     "desc": "사람의 움직임 표현과 가성비가 강점인 영상 생성 서비스",
     "url": "https://kling.ai/",
     "price": [
@@ -59,7 +59,7 @@ const services = [
   {
     "id": 3,
     "name": "CapCut",
-    "category": "동영상 편집",
+    "category": "동영상 생성·편집",
     "desc": "컷 편집, 자막, 효과, 템플릿을 갖춘 범용 편집기",
     "url": "https://www.capcut.com/",
     "price": [
@@ -82,7 +82,7 @@ const services = [
   {
     "id": 4,
     "name": "Vrew",
-    "category": "동영상 편집",
+    "category": "동영상 생성·편집",
     "desc": "음성 인식 자막과 텍스트 기반 컷 편집이 되는 국산 편집기",
     "url": "https://vrew.ai/ko/",
     "price": [

@@ -103,7 +103,16 @@
   // ---------------------------------------------------------
   // 숫자 요약
   // ---------------------------------------------------------
-  const categories = [...new Set(services.map((s) => s.category))];
+  // 분야 순서: 자료·문서 → 이미지·영상·음성 → 화면·코딩·자동화 → 에이전트
+  const CATEGORY_ORDER = [
+    '리서치·검색', '회의록·기록', '시각화·PPT',
+    '이미지 생성·편집', '동영상 생성·편집', '음성·번역',
+    '웹·UI/UX 디자인', '바이브 코딩', '자동화',
+    '범용 AI 에이전트',
+  ];
+  const catRank = (c) => (CATEGORY_ORDER.includes(c) ? CATEGORY_ORDER.indexOf(c) : CATEGORY_ORDER.length);
+  // 목록에 없는 새 분야는 맨 뒤에 붙음
+  const categories = [...new Set(services.map((s) => s.category))].sort((a, b) => catRank(a) - catRank(b));
 
   $('#badge-text').textContent = `AI 서비스 ${services.length}개 · ${SITUATIONS.length}가지 상황`;
 
@@ -228,40 +237,18 @@
   requestAnimationFrame(tick);
   window.addEventListener('resize', layoutArc);
 
-  function syncChips() {
-    cards.forEach((c) => c.setAttribute('aria-pressed', String(state.sits.has(c.dataset.sit))));
-    const picked = $('#picked');
-    picked.innerHTML = state.sits.size
-      ? `고른 상황: <b>${[...state.sits].map((id) => esc(SIT[id].label)).join(', ')}</b>
-         <a href="#rec">추천 보기 ↓</a><button type="button" data-reset>모두 지우기</button>`
-      : '카드를 눌러 지금 상황을 골라 보세요. 여러 개 골라도 돼요.';
-  }
-
-  arc.addEventListener('click', (e) => {
-    const c = e.target.closest('[data-sit]');
-    if (!c) return;
-    const id = c.dataset.sit;
-    state.sits.has(id) ? state.sits.delete(id) : state.sits.add(id);
-    syncChips();
-    renderRec();
-  });
-
-  $('#picked').addEventListener('click', (e) => {
-    if (!e.target.closest('[data-reset]')) return;
-    state.sits.clear();
-    state.text = '';
-    Object.keys(state.toggles).forEach((k) => { state.toggles[k] = false; });
-    $('#ask-input').value = '';
-    syncChips();
-    syncToggles();
-    renderRec();
-    renderList();
-    $('#ask-input').focus();
-  });
-
   // ---------------------------------------------------------
-  // 문장으로 상황 입력
+  // 상황 입력 칸: 문장 입력 + 카드 선택을 한 곳에
+  // 카드로 고른 상황(manual)과 문장에서 알아챈 상황(auto)이 모두 입력 칸 안에 태그로 담김
   // ---------------------------------------------------------
+  const askInput = $('#ask-input');
+  const tokenWrap = $('#ask-tokens');
+  const clearBtn = $('#ask-clear');
+  const pick = { manual: new Set(), auto: new Set(), dismissed: new Set() };
+
+  // 카드로 고른 순서 → 문장에서 알아챈 순서
+  const pickedIds = () => [...pick.manual, ...[...pick.auto].filter((id) => !pick.manual.has(id))];
+
   function readSituation(text) {
     const t = text.toLowerCase().replace(/\s+/g, ' ');
     const found = SITUATIONS.filter((s) => s.keys.some((k) => t.includes(k))).map((s) => s.id);
@@ -271,14 +258,88 @@
     return { found, toggles };
   }
 
+  function syncChips() {
+    const ids = pickedIds();
+    state.sits = new Set(ids);
+    cards.forEach((c) => c.setAttribute('aria-pressed', String(state.sits.has(c.dataset.sit))));
+    tokenWrap.innerHTML = ids.map((id) => {
+      const auto = !pick.manual.has(id);
+      return `<li class="token${auto ? ' token--auto' : ''}">
+        <span aria-hidden="true">${SIT[id].emoji}</span>${esc(SIT[id].label)}
+        <button type="button" data-untoken="${id}" aria-label="${esc(SIT[id].label)} 빼기">×</button></li>`;
+    }).join('');
+    clearBtn.hidden = !ids.length && !askInput.value;
+    askInput.placeholder = ids.length
+      ? '더 적거나 아래 카드를 눌러 추가해요'
+      : '예: 내일 발표인데 PPT가 하나도 없어요';
+  }
+
+  // 상황 하나 넣기/빼기 (카드·태그 공용)
+  function toggleSituation(id) {
+    if (state.sits.has(id)) {
+      pick.manual.delete(id);
+      if (pick.auto.has(id)) { pick.auto.delete(id); pick.dismissed.add(id); }
+    } else {
+      pick.manual.add(id);
+      pick.dismissed.delete(id);
+    }
+    syncChips();
+    renderRec();
+  }
+
+  arc.addEventListener('click', (e) => {
+    const c = e.target.closest('[data-sit]');
+    if (c) toggleSituation(c.dataset.sit);
+  });
+
+  tokenWrap.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-untoken]');
+    if (!b) return;
+    toggleSituation(b.dataset.untoken);
+    askInput.focus();
+  });
+
+  // 적는 동안 바로 상황을 알아채서 태그로 보여 줌
+  let typingTimer = null;
+  askInput.addEventListener('input', () => {
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(() => {
+      const text = askInput.value.trim();
+      if (!text) pick.dismissed.clear();
+      const before = pickedIds().join();
+      pick.auto = new Set(readSituation(text).found.filter((id) => !pick.dismissed.has(id)));
+      syncChips();
+      if (pickedIds().join() !== before) renderRec();
+    }, 200);
+  });
+
+  // 빈 칸에서 지우기 키를 누르면 마지막 태그 빼기
+  askInput.addEventListener('keydown', (e) => {
+    if (e.key !== 'Backspace' || askInput.value || !state.sits.size) return;
+    const ids = pickedIds();
+    toggleSituation(ids[ids.length - 1]);
+  });
+
+  clearBtn.addEventListener('click', () => {
+    pick.manual.clear();
+    pick.auto.clear();
+    pick.dismissed.clear();
+    askInput.value = '';
+    state.text = '';
+    syncChips();
+    renderRec();
+    askInput.focus();
+  });
+
   $('#ask-form').addEventListener('submit', (e) => {
     e.preventDefault();
-    const text = $('#ask-input').value.trim();
-    if (!text) { $('#ask-input').focus(); return; }
+    clearTimeout(typingTimer);
+    const text = askInput.value.trim();
+    if (!text && !pick.manual.size) { askInput.focus(); return; }
 
     const { found, toggles } = readSituation(text);
+    pick.auto = new Set(found.filter((id) => !pick.dismissed.has(id)));
     state.text = text;
-    state.sits = new Set(found);
     toggles.forEach((k) => { state.toggles[k] = true; });
     syncChips();
     syncToggles();
@@ -354,8 +415,6 @@
   // ---------------------------------------------------------
   // 추천 결과 그리기
   // ---------------------------------------------------------
-  const QUICK = ['research', 'present', 'videoEdit', 'meeting'];
-
   function renderRec() {
     const body = $('#rec-body');
     const summary = $('#rec-summary');
@@ -365,10 +424,8 @@
       summary.textContent = '상황을 고르면 여기에 딱 맞는 AI 3개를 골라 드려요.';
       body.innerHTML = `
         <div class="rec-empty">
-          <p>위 입력창에 지금 상황을 적거나, 상황 카드를 눌러 보세요. 이런 상황부터 시작해도 좋아요.</p>
-          <div class="quick">${QUICK.map((id) =>
-            `<button type="button" class="chip" data-quick="${id}"><span class="chip__emoji" aria-hidden="true">${SIT[id].emoji}</span>${esc(SIT[id].label)}</button>`).join('')}
-          </div>
+          <p>위 입력 칸에 지금 상황을 적거나, 상황 카드를 눌러 담아 주세요.</p>
+          <a class="btn btn--ink btn--sm" href="#ask-input">상황 입력하러 가기</a>
         </div>`;
       return;
     }
@@ -385,10 +442,7 @@
         <div class="rec-empty">
           <p>${state.sits.size
             ? '조건에 맞는 서비스가 없어요. 위 조건에서 <b>무료만</b>을 꺼 보세요.'
-            : '이 문장에서는 상황을 잘 알아채지 못했어요. 아래에서 가장 가까운 상황을 골라 주세요.'}</p>
-          <div class="quick">${QUICK.map((id) =>
-            `<button type="button" class="chip" data-quick="${id}"><span class="chip__emoji" aria-hidden="true">${SIT[id].emoji}</span>${esc(SIT[id].label)}</button>`).join('')}
-          </div>
+            : '이 문장에서는 상황을 잘 알아채지 못했어요. 위 상황 카드에서 가장 가까운 것을 눌러 담아 주세요.'}</p>
         </div>`;
       return;
     }
@@ -431,17 +485,6 @@
         </aside>` : ''}`;
   }
 
-  $('#rec-body').addEventListener('click', (e) => {
-    const q = e.target.closest('[data-quick]');
-    if (q) {
-      state.sits = new Set([q.dataset.quick]);
-      state.text = '';
-      syncChips();
-      renderRec();
-      $('#rec').focus({ preventScroll: true });
-    }
-  });
-
   // ---------------------------------------------------------
   // 전체 리스트: 분야 필터 + 검색
   // ---------------------------------------------------------
@@ -470,7 +513,8 @@
     const list = services.filter((s) =>
       passes(s) &&
       (state.cat === '전체' || s.category === state.cat) &&
-      (!q || `${s.name} ${s.category} ${s.desc} ${s.use}`.toLowerCase().includes(q)));
+      (!q || `${s.name} ${s.category} ${s.desc} ${s.use}`.toLowerCase().includes(q)))
+      .sort((a, b) => catRank(a.category) - catRank(b.category) || a.id - b.id);
 
     const onToggles = state.toggles.free ? [TOGGLE_NAMES.free] : [];
     $('#list-count').textContent =
