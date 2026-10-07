@@ -1,5 +1,5 @@
-// AI 서비스 리스트 · 상황별 추천 / 필터·검색 / 음악 플레이어
-// 데이터는 js/services.js 의 services, teamTips 를 사용합니다.
+// AI Pick · 상황별 추천 / 곡선 캐러셀 / 필터·검색 / 같은 분야 비교
+// 데이터는 js/services.js 의 services, tips 를 사용합니다.
 (function () {
   'use strict';
 
@@ -61,18 +61,26 @@
   ];
   const SIT = Object.fromEntries(SITUATIONS.map((s) => [s.id, s]));
 
+  // 상황 카드 색 (위쪽 밝은 색 → 아래쪽 진한 색)
+  const SIT_COLORS = {
+    research: ['#8fb8f0', '#3157a8'], fact: ['#9ee0c0', '#23805c'], study: ['#f7c873', '#b8661a'],
+    present: ['#f5a97f', '#c94a2f'], image: ['#f39bc0', '#a8346c'], videoGen: ['#b6a2f2', '#5b3fb8'],
+    videoEdit: ['#ff9f80', '#c73c27'], web: ['#8fd4e8', '#1f6f8f'], code: ['#8b95a3', '#262c35'],
+    automation: ['#c3dd7a', '#4f7a18'], meeting: ['#e6b48a', '#87502d'], translate: ['#86c9b8', '#256760'],
+    voice: ['#f2a0a0', '#a3364a'], dashboard: ['#a8b4f5', '#3644a8'],
+  };
+
   // 입력 문장에서 조건까지 알아채는 단어
   const TOGGLE_KEYS = {
     free: ['무료', '공짜', '돈 없', '돈이 없', '결제 없이', '예산', '학생'],
     easy: ['처음', '초보', '입문', '쉬운', '쉽게', '잘 몰라', '몰라서', '모르'],
-    korean: ['한국어', '국산', '한글'],
   };
   const CMP_MAX = 6; // 한 번에 비교할 수 있는 최대 개수 (분야별 최대 서비스 수)
-  const TOGGLE_NAMES = { free: '무료만', tried: '써본 것만', korean: '국산 우선', easy: '초보 모드' };
+  const TOGGLE_NAMES = { free: '무료만', easy: '초보 모드' };
 
   const state = {
     sits: new Set(),
-    toggles: { free: false, tried: false, korean: false, easy: false },
+    toggles: { free: false, easy: false },
     text: '',
     cat: '전체',
     query: '',
@@ -84,78 +92,152 @@
   const baseName = (s) => s.name.replace(/\s*\(.*\)\s*/, '').trim();
   const priceClass = (t) => (t === '무료' ? 'free' : t === '유료' ? 'paid' : 'mixed');
   const priceBadge = (s) => `<span class="badge badge--${priceClass(s.priceType)}">${esc(s.priceType)}</span>`;
-  const linkBtn = (s, cls = 'btn--red') =>
+  const linkBtn = (s, cls = 'btn--accent') =>
     `<a class="btn ${cls}" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">바로가기 <span aria-hidden="true">↗</span><span class="sr-only">(새 탭에서 열림)</span></a>`;
 
   function passes(s) {
     if (state.toggles.free && s.priceType === '유료') return false;
-    if (state.toggles.tried && !s.tried) return false;
     return true;
-  }
-
-  function squish(el) {
-    if (reduceMotion.matches) return;
-    el.classList.remove('is-squish');
-    void el.offsetWidth;
-    el.classList.add('is-squish');
   }
 
   // ---------------------------------------------------------
   // 숫자 요약
   // ---------------------------------------------------------
-  const team = [...new Set(services.map((s) => s.by).filter(Boolean))];
   const categories = [...new Set(services.map((s) => s.category))];
-  const triedCount = services.filter((s) => s.tried).length;
 
-  $('#stats').innerHTML = `
-    <li><b>${services.length}</b>개 서비스</li>
-    <li><b>${categories.length}</b>개 분야</li>
-    <li><b>${SITUATIONS.length}</b>가지 상황</li>`;
-  $('#stat-tried').textContent = triedCount;
-  $('#stat-team').textContent = team.length;
-  $('#team-names').textContent = team.join(' · ');
-
-  // 시간대 인사말
-  const h = new Date().getHours();
-  $('#greet-title').textContent =
-    h >= 5 && h < 11 ? '좋은 아침이에요!' :
-    h >= 11 && h < 17 ? '좋은 오후예요!' :
-    h >= 17 && h < 22 ? '좋은 저녁이에요!' : '늦게까지 수고 많아요!';
+  $('#badge-text').textContent = `AI 서비스 ${services.length}개 · ${SITUATIONS.length}가지 상황`;
 
   // ---------------------------------------------------------
-  // 조건 토글 (설정 카드)
+  // 조건 토글
   // ---------------------------------------------------------
   const toggleBtns = [...document.querySelectorAll('[data-toggle]')];
 
   function syncToggles() {
     toggleBtns.forEach((b) => b.setAttribute('aria-pressed', String(state.toggles[b.dataset.toggle])));
-    const on = Object.keys(state.toggles).filter((k) => state.toggles[k]).map((k) => TOGGLE_NAMES[k]);
-    $('#set-status').textContent = on.length ? `켜짐: ${on.join(', ')}` : '조건 없음 · 눌러서 켜기';
   }
 
   toggleBtns.forEach((b) => b.addEventListener('click', () => {
     const k = b.dataset.toggle;
     state.toggles[k] = !state.toggles[k];
-    squish(b);
     syncToggles();
     renderRec();
     renderList();
   }));
 
   // ---------------------------------------------------------
-  // 상황 칩
+  // 상황 카드: 곡선 캐러셀
+  // 카드는 원통 안쪽에 붙은 것처럼 바깥쪽일수록 크게, 가운데를 향해 기울어짐.
+  // 항상 저절로 천천히 흐르고, 마우스를 올리거나 키보드로 고르면 잠깐 멈춤.
   // ---------------------------------------------------------
-  const chipWrap = $('#sit-chips');
-  chipWrap.innerHTML = SITUATIONS.map((s) =>
-    `<button type="button" class="chip" data-sit="${s.id}" aria-pressed="false"><span class="chip__emoji" aria-hidden="true">${s.emoji}</span>${esc(s.label)}</button>`
-  ).join('');
+  const arc = $('#arc');
+  arc.innerHTML = SITUATIONS.map((s) => {
+    const [c1, c2] = SIT_COLORS[s.id];
+    return `<button type="button" class="sit-card" data-sit="${s.id}" aria-pressed="false" style="--c1:${c1};--c2:${c2}">
+      <span class="sit-card__check" aria-hidden="true">✓</span>
+      <span class="sit-card__emoji" aria-hidden="true">${s.emoji}</span>
+      <span><span class="sit-card__label">${esc(s.label)}</span><span class="sit-card__count">추천 AI ${s.picks.length}개</span></span>
+    </button>`;
+  }).join('');
+  const cards = [...arc.querySelectorAll('.sit-card')];
+  const carousel = { offset: 0, target: null, hover: false, focus: false, drag: null, dragged: false, last: 0, visible: true };
 
-  function syncChips() {
-    chipWrap.querySelectorAll('[data-sit]').forEach((c) =>
-      c.setAttribute('aria-pressed', String(state.sits.has(c.dataset.sit))));
+  const spacing = () => cards[0].offsetWidth + 22;
+  const total = () => spacing() * cards.length;
+
+  function layoutArc() {
+    const sp = spacing();
+    const tot = sp * cards.length;
+    const half = arc.clientWidth / 2 || 1;
+    cards.forEach((c, i) => {
+      let x = (((i * sp - carousel.offset) % tot) + tot) % tot;
+      if (x > tot / 2) x -= tot;
+      const d = Math.max(-1.5, Math.min(1.5, x / half));
+      c.style.transform = `translateX(${x.toFixed(1)}px) translateZ(${(Math.abs(d) * 80).toFixed(1)}px) rotateY(${(-d * 26).toFixed(2)}deg)`;
+      c.style.zIndex = String(Math.round(Math.abs(d) * 10));
+    });
   }
 
-  chipWrap.addEventListener('click', (e) => {
+  // 카드 i를 가운데로 (가장 가까운 방향으로)
+  function centerCard(i) {
+    const tot = total();
+    const base = i * spacing();
+    carousel.target = base + tot * Math.round((carousel.offset - base) / tot);
+    if (reduceMotion.matches) { carousel.offset = carousel.target; carousel.target = null; layoutArc(); }
+  }
+
+  function tick(t) {
+    const dt = Math.min(50, t - (carousel.last || t));
+    carousel.last = t;
+    if (carousel.visible) {
+      if (carousel.target !== null) {
+        carousel.offset += (carousel.target - carousel.offset) * 0.14;
+        if (Math.abs(carousel.target - carousel.offset) < 0.5) { carousel.offset = carousel.target; carousel.target = null; }
+      } else if (!carousel.hover && !carousel.focus && !carousel.drag) {
+        carousel.offset += dt * 0.035;
+      }
+      layoutArc();
+    }
+    requestAnimationFrame(tick);
+  }
+
+  // 화면 밖이면 계산 쉬기
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(([en]) => { carousel.visible = en.isIntersecting; }).observe(arc);
+  }
+
+  arc.addEventListener('mouseenter', () => { carousel.hover = true; });
+  arc.addEventListener('mouseleave', () => { carousel.hover = false; });
+  arc.addEventListener('focusin', (e) => {
+    carousel.focus = true;
+    const i = cards.indexOf(e.target.closest('.sit-card'));
+    if (i > -1) centerCard(i);
+  });
+  arc.addEventListener('focusout', (e) => {
+    if (!arc.contains(e.relatedTarget)) carousel.focus = false;
+  });
+
+  // 끌어서 넘기기 (조금이라도 끌었으면 클릭으로 치지 않음)
+  arc.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    carousel.drag = { x: e.clientX, offset: carousel.offset, id: e.pointerId };
+    carousel.dragged = false;
+    carousel.target = null;
+  });
+  arc.addEventListener('pointermove', (e) => {
+    const d = carousel.drag;
+    if (!d) return;
+    const dx = e.clientX - d.x;
+    if (!carousel.dragged && Math.abs(dx) > 6) {
+      carousel.dragged = true;
+      arc.classList.add('is-dragging');
+      arc.setPointerCapture(d.id);
+    }
+    if (carousel.dragged) carousel.offset = d.offset - dx;
+  });
+  const endDrag = () => {
+    carousel.drag = null;
+    arc.classList.remove('is-dragging');
+  };
+  arc.addEventListener('pointerup', endDrag);
+  arc.addEventListener('pointercancel', endDrag);
+  arc.addEventListener('click', (e) => {
+    if (carousel.dragged) { e.stopPropagation(); e.preventDefault(); carousel.dragged = false; }
+  }, true);
+
+  layoutArc();
+  requestAnimationFrame(tick);
+  window.addEventListener('resize', layoutArc);
+
+  function syncChips() {
+    cards.forEach((c) => c.setAttribute('aria-pressed', String(state.sits.has(c.dataset.sit))));
+    const picked = $('#picked');
+    picked.innerHTML = state.sits.size
+      ? `고른 상황: <b>${[...state.sits].map((id) => esc(SIT[id].label)).join(', ')}</b>
+         <a href="#rec">추천 보기 ↓</a><button type="button" data-reset>모두 지우기</button>`
+      : '카드를 눌러 지금 상황을 골라 보세요. 여러 개 골라도 돼요.';
+  }
+
+  arc.addEventListener('click', (e) => {
     const c = e.target.closest('[data-sit]');
     if (!c) return;
     const id = c.dataset.sit;
@@ -164,7 +246,8 @@
     renderRec();
   });
 
-  $('#btn-reset').addEventListener('click', () => {
+  $('#picked').addEventListener('click', (e) => {
+    if (!e.target.closest('[data-reset]')) return;
     state.sits.clear();
     state.text = '';
     Object.keys(state.toggles).forEach((k) => { state.toggles[k] = false; });
@@ -191,7 +274,6 @@
   $('#ask-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const text = $('#ask-input').value.trim();
-    squish(e.submitter || $('.puff--go'));
     if (!text) { $('#ask-input').focus(); return; }
 
     const { found, toggles } = readSituation(text);
@@ -235,12 +317,10 @@
       }
       if (score <= 0) return;
 
-      if (state.toggles.korean && s.korean) { score += 4; why.push('국산·한국어 특화'); }
       if (state.toggles.easy) {
         if (s.level === '쉬움') { score += 4; why.push('초보도 쉬움'); }
         else if (s.level === '어려움') score -= 5;
       }
-      if (s.tried) { score += 1.5; why.push(`${s.by} 님이 직접 써봄`); }
       if (s.priceType === '무료') why.push('무료');
       else if (s.priceType === '무료+유료') why.push('무료로 시작 가능');
       scored.push({ s, score, why });
@@ -260,7 +340,7 @@
   function tipsFor(list) {
     const names = list.map(({ s }) => baseName(s));
     const cats = list.map(({ s }) => s.category);
-    return teamTips
+    return tips
       .map((t) => ({
         t,
         hit: names.filter((n) => t.text.includes(n)).length * 2 + (cats.some((c) => c.startsWith(t.field)) ? 1 : 0),
@@ -285,8 +365,8 @@
       summary.textContent = '상황을 고르면 여기에 딱 맞는 AI 3개를 골라 드려요.';
       body.innerHTML = `
         <div class="rec-empty">
-          <p>위 입력창에 지금 상황을 적거나, 상황 칩을 눌러 보세요. 이런 상황부터 시작해도 좋아요.</p>
-          <div class="chips">${QUICK.map((id) =>
+          <p>위 입력창에 지금 상황을 적거나, 상황 카드를 눌러 보세요. 이런 상황부터 시작해도 좋아요.</p>
+          <div class="quick">${QUICK.map((id) =>
             `<button type="button" class="chip" data-quick="${id}"><span class="chip__emoji" aria-hidden="true">${SIT[id].emoji}</span>${esc(SIT[id].label)}</button>`).join('')}
           </div>
         </div>`;
@@ -304,9 +384,9 @@
       body.innerHTML = `
         <div class="rec-empty">
           <p>${state.sits.size
-            ? '조건에 맞는 서비스가 없어요. 위 조건 카드에서 <b>무료만</b>이나 <b>써본 것만</b>을 꺼 보세요.'
+            ? '조건에 맞는 서비스가 없어요. 위 조건에서 <b>무료만</b>을 꺼 보세요.'
             : '이 문장에서는 상황을 잘 알아채지 못했어요. 아래에서 가장 가까운 상황을 골라 주세요.'}</p>
-          <div class="chips">${QUICK.map((id) =>
+          <div class="quick">${QUICK.map((id) =>
             `<button type="button" class="chip" data-quick="${id}"><span class="chip__emoji" aria-hidden="true">${SIT[id].emoji}</span>${esc(SIT[id].label)}</button>`).join('')}
           </div>
         </div>`;
@@ -324,16 +404,16 @@
     body.innerHTML = `
       <ol class="rec-top">
         ${top.map(({ s, why }, i) => `
-          <li class="card pick">
-            <span class="pick__rank" aria-label="${i + 1}위">${i + 1}</span>
+          <li class="pick">
+            <span class="pick__rank" aria-label="${i + 1}위">0${i + 1}</span>
             <p class="pick__cat">${esc(s.category)}</p>
             <h3 class="pick__name">${esc(s.name)}</h3>
             <p class="pick__desc">${esc(s.desc)}</p>
             <p class="pick__use"><b>이럴 때:</b> ${esc(s.use)}</p>
-            <ul class="reasons" aria-label="추천 이유">${why.slice(0, 4).map((w) => `<li>${esc(w)}</li>`).join('')}</ul>
+            <ul class="tags" aria-label="추천 이유">${why.slice(0, 4).map((w) => `<li>${esc(w)}</li>`).join('')}</ul>
             <div class="actions">
-              <button type="button" class="btn btn--white" data-detail="${s.id}">자세히 보기</button>
-              ${linkBtn(s)}
+              <button type="button" class="btn btn--line btn--sm" data-detail="${s.id}">자세히 보기</button>
+              ${linkBtn(s, 'btn--accent btn--sm')}
             </div>
           </li>`).join('')}
       </ol>
@@ -345,9 +425,9 @@
           </div>
         </div>` : ''}
       ${tips.length ? `
-        <aside class="tips" aria-label="조원 꿀팁">
-          <h3>조원이 써 보고 남긴 팁</h3>
-          <ul>${tips.map((t) => `<li>${esc(t.text)} <small>— ${esc(t.by)}</small></li>`).join('')}</ul>
+        <aside class="tips" aria-label="사용 팁">
+          <h3>알아두면 좋은 팁</h3>
+          <ul>${tips.map((t) => `<li>${esc(t.text)}</li>`).join('')}</ul>
         </aside>` : ''}`;
   }
 
@@ -392,7 +472,7 @@
       (state.cat === '전체' || s.category === state.cat) &&
       (!q || `${s.name} ${s.category} ${s.desc} ${s.use}`.toLowerCase().includes(q)));
 
-    const onToggles = ['free', 'tried'].filter((k) => state.toggles[k]).map((k) => TOGGLE_NAMES[k]);
+    const onToggles = state.toggles.free ? [TOGGLE_NAMES.free] : [];
     $('#list-count').textContent =
       `${services.length}개 중 ${list.length}개 표시` + (onToggles.length ? ` (조건: ${onToggles.join(', ')})` : '');
 
@@ -403,21 +483,20 @@
     catBtn.textContent = `이 분야 ${Math.min(sameCat.length, CMP_MAX)}개 한눈에 비교`;
 
     $('#grid').innerHTML = list.length ? list.map((s) => `
-      <article class="card card--black svc">
+      <article class="svc">
         <div class="svc__top"><span class="svc__cat">${esc(s.category)}</span>${cmpBtn(s)}</div>
         <h3 class="svc__name">${esc(s.name)}</h3>
         <p class="svc__desc">${esc(s.desc)}</p>
         <p class="svc__meta">
           ${priceBadge(s)}
-          ${s.tried ? '<span class="badge badge--tried">직접 써봄</span>' : '<span>조사 기반</span>'}
-          <span>· ${esc(s.by)} · 난이도 ${esc(s.level)}</span>
+          <span>난이도 ${esc(s.level)}</span>
         </p>
         <div class="actions">
-          <button type="button" class="btn btn--white" data-detail="${s.id}">자세히</button>
-          ${linkBtn(s)}
+          <button type="button" class="btn btn--line" data-detail="${s.id}">자세히</button>
+          ${linkBtn(s, 'btn--ink')}
         </div>
       </article>`).join('')
-      : '<p class="empty card card--white">검색 결과가 없어요. 다른 단어로 찾아보거나 분야를 ‘전체’로 바꿔 보세요.</p>';
+      : '<p class="empty">검색 결과가 없어요. 다른 단어로 찾아보거나 분야를 ‘전체’로 바꿔 보세요.</p>';
   }
 
   // ---------------------------------------------------------
@@ -430,22 +509,19 @@
     const s = byId.get(Number(id));
     if (!s) return;
     $('#detail-body').innerHTML = `
-      <p class="detail__kicker">${esc(kicker || s.category)}</p>
-      <h2 class="detail__name" id="detail-name">${esc(s.name)}</h2>
-      <p class="detail__desc">${esc(s.desc)}</p>
-      <div class="detail__badges">
+      <p class="m-kicker">${esc(kicker || s.category)}</p>
+      <h2 class="m-title" id="detail-name">${esc(s.name)}</h2>
+      <p class="m-desc">${esc(s.desc)}</p>
+      <div class="m-badges">
         ${priceBadge(s)}
-        ${s.tried ? '<span class="badge badge--tried">조원이 직접 써봄</span>' : '<span class="badge badge--tried">조사 기반</span>'}
         <span class="badge badge--mixed">난이도 ${esc(s.level)}</span>
-        ${s.korean ? '<span class="badge badge--free">국산·한국어 특화</span>' : ''}
       </div>
-      <section class="detail__sec"><h3>추천 용도</h3><p>${esc(s.use)}</p></section>
-      <section class="detail__sec"><h3>요금</h3>${ul(s.price)}</section>
-      ${s.pros.length ? `<section class="detail__sec"><h3>장점</h3>${ul(s.pros)}</section>` : ''}
-      ${s.cons.length ? `<section class="detail__sec"><h3>아쉬운 점</h3>${ul(s.cons)}</section>` : ''}
-      <section class="detail__sec"><h3>직접 써본 소감 · ${esc(s.by)}</h3><p class="detail__review">${esc(s.review)}</p></section>
-      ${s.note ? `<section class="detail__sec"><h3>비고</h3><p class="detail__note">${esc(s.note)}</p></section>` : ''}
-      <div class="actions">${linkBtn(s)}${cmpBtn(s, true)}<button type="button" class="btn btn--ghost" data-close>닫기</button></div>`;
+      <section class="m-sec"><h3>추천 용도</h3><p>${esc(s.use)}</p></section>
+      <section class="m-sec"><h3>요금</h3>${ul(s.price)}</section>
+      ${s.pros.length ? `<section class="m-sec"><h3>장점</h3>${ul(s.pros)}</section>` : ''}
+      ${s.cons.length ? `<section class="m-sec"><h3>아쉬운 점</h3>${ul(s.cons)}</section>` : ''}
+      ${s.note ? `<section class="m-sec"><h3>참고</h3><p class="m-note">${esc(s.note)}</p></section>` : ''}
+      <div class="actions">${linkBtn(s)}${cmpBtn(s, true)}<button type="button" class="btn btn--line" data-close>닫기</button></div>`;
     $('#detail-body').scrollTop = 0;
     if (!dlg.open) dlg.showModal();
   }
@@ -471,7 +547,7 @@
 
   function cmpBtn(s, big) {
     const on = cmp.ids.includes(s.id);
-    return `<button type="button" class="${big ? 'btn btn--ghost' : 'cmp-toggle'}" data-compare="${s.id}" aria-pressed="${on}"
+    return `<button type="button" class="${big ? 'btn btn--line' : 'cmp-toggle'}" data-compare="${s.id}" aria-pressed="${on}"
       aria-label="${esc(s.name)} 비교함에 ${on ? '담김 (누르면 빼기)' : '담기'}">${on ? '✓ 비교 담김' : '＋ 비교'}</button>`;
   }
 
@@ -501,8 +577,8 @@
         <p class="tray__msg" role="status">비교는 같은 분야끼리만 할 수 있어요.
           <b>${esc(cat)}</b> 비교함을 비우고 <b>${esc(p.category)}</b>의 ${esc(p.name)}부터 새로 담을까요?</p>
         <div class="tray__btns">
-          <button type="button" class="btn btn--red" data-tray="replace">새로 담기</button>
-          <button type="button" class="btn btn--ghost" data-tray="cancel">그대로 두기</button>
+          <button type="button" class="btn btn--accent btn--sm" data-tray="replace">새로 담기</button>
+          <button type="button" class="btn btn--line btn--sm" data-tray="cancel">그대로 두기</button>
         </div>`;
       tray.querySelector('[data-tray="replace"]').focus();
       return;
@@ -520,8 +596,8 @@
         return `<li><span>${esc(s.name)}</span><button type="button" data-tray-remove="${id}" aria-label="${esc(s.name)} 비교함에서 빼기">×</button></li>`;
       }).join('')}</ul>
       <div class="tray__btns">
-        <button type="button" class="btn btn--red" data-tray="open" ${enough ? '' : 'disabled'}>비교하기</button>
-        <button type="button" class="btn btn--ghost" data-tray="clear">비우기</button>
+        <button type="button" class="btn btn--accent btn--sm" data-tray="open" ${enough ? '' : 'disabled'}>비교하기</button>
+        <button type="button" class="btn btn--line btn--sm" data-tray="clear">비우기</button>
       </div>`;
   }
 
@@ -607,22 +683,17 @@
 
     const easiest = bestOf(list, (s) => LEVEL_RANK[s.level]);
     const freest = bestOf(list, (s) => PRICE_RANK[s.priceType]);
-    const tried = list.filter((s) => s.tried);
-    const untried = list.filter((s) => !s.tried);
     const paidOnly = list.filter((s) => s.priceType === '유료');
-    const korean = list.filter((s) => s.korean);
 
     // 한눈에 결론
     const verdicts = [];
     if (easiest.length) verdicts.push(['처음 써 본다면', `${names(easiest)} (난이도 ${easiest[0].level})`]);
     if (freest.length) verdicts.push(['돈 들이지 않고 시작하려면', `${names(freest)} (${freest[0].priceType})`]);
     if (paidOnly.length) verdicts.push(['결제가 꼭 필요한 것', `${names(paidOnly)} — 무료 플랜이 없어요`]);
-    if (tried.length && untried.length) verdicts.push(['조원이 직접 써 본 것', `${names(tried)} (나머지는 조사 기반)`]);
-    if (korean.length && korean.length < list.length) verdicts.push(['한국어 작업이 많다면', `${names(korean)} (국산·한국어 특화)`]);
     if (!verdicts.length) verdicts.push(['기본 조건', '난이도와 요금 형태가 비슷해요. 아래 ‘이럴 때 고르세요’와 장단점으로 골라 보세요.']);
 
-    // 같은 분야 조원 팁
-    const tips = teamTips.filter((t) =>
+    // 같은 분야 사용 팁
+    const catTips = tips.filter((t) =>
       list.some((s) => t.text.includes(baseName(s))) || cat.startsWith(t.field));
 
     // 표의 한 줄: 값이 모두 같으면 '모두 같음', 다르면 '차이 있음'
@@ -637,8 +708,8 @@
     const listOrDash = (arr) => (arr.length ? ul(arr) : '<p class="dim">—</p>');
 
     $('#compare-body').innerHTML = `
-      <p class="detail__kicker">${esc(cat)} · ${list.length}개 비교</p>
-      <h2 class="detail__name" id="compare-title">무엇이 다르고, 뭐가 더 좋을까?</h2>
+      <p class="m-kicker">${esc(cat)} · ${list.length}개 비교</p>
+      <h2 class="m-title" id="compare-title">무엇이 다르고, 뭐가 더 좋을까?</h2>
 
       <section class="verdict" aria-label="한눈에 결론">
         <h3>한눈에 결론</h3>
@@ -663,7 +734,6 @@
               ${list.map((s) => `
                 <th scope="col">
                   <span class="cmp-name">${esc(s.name)}</span>
-                  <span class="cmp-by">조사 ${esc(s.by)}</span>
                   ${linkBtn(s)}
                 </th>`).join('')}
             </tr>
@@ -672,25 +742,21 @@
             ${row('한 줄 소개', (s) => esc(s.desc))}
             ${row('요금 형태', (s) => priceBadge(s) + mark(s, freest), { same: allSame((s) => s.priceType) })}
             ${row('난이도', (s) => `<b>${esc(s.level)}</b>` + mark(s, easiest), { same: allSame((s) => s.level) })}
-            ${row('직접 써봄', (s) => (s.tried ? '<b>예</b>' : '조사 기반') + mark(s, tried.length < list.length ? tried : []),
-              { same: allSame((s) => s.tried) })}
-            ${korean.length ? row('국산·한국어', (s) => (s.korean ? '<b>예</b>' : '—'), { same: allSame((s) => s.korean) }) : ''}
             ${row('무료로 되는 것', (s) => listOrDash(splitPrice(s).free))}
             ${row('유료 요금', (s) => listOrDash(splitPrice(s).paid), { note: '부가세·환율에 따라 달라요' })}
             ${row('장점', (s) => listOrDash(s.pros))}
             ${row('아쉬운 점', (s) => listOrDash(s.cons))}
-            ${row('직접 써본 소감', (s) => `<p class="detail__review">${esc(s.review)}</p>`)}
           </tbody>
         </table>
       </div>
 
-      ${tips.length ? `
-        <aside class="tips" aria-label="조원 비교 팁">
-          <h3>조원이 직접 비교하며 남긴 팁</h3>
-          <ul>${tips.map((t) => `<li>${esc(t.text)} <small>— ${esc(t.by)}</small></li>`).join('')}</ul>
+      ${catTips.length ? `
+        <aside class="tips" aria-label="사용 팁">
+          <h3>알아두면 좋은 팁</h3>
+          <ul>${catTips.map((t) => `<li>${esc(t.text)}</li>`).join('')}</ul>
         </aside>` : ''}
 
-      <div class="actions"><button type="button" class="btn btn--ghost" data-close>닫기</button></div>`;
+      <div class="actions"><button type="button" class="btn btn--line" data-close>닫기</button></div>`;
 
     $('#compare-body').scrollTop = 0;
     if (dlg.open) dlg.close();
@@ -703,115 +769,33 @@
   });
 
   // ---------------------------------------------------------
-  // 하단 버튼: 오늘의 AI 뽑기 / 맨 위로
+  // 맨 위로
   // ---------------------------------------------------------
-  $('#btn-random').addEventListener('click', (e) => {
-    squish(e.currentTarget);
-    const pool = services.filter(passes);
-    const s = pool[Math.floor(Math.random() * pool.length)];
-    if (s) openDetail(s.id, '오늘의 AI 🎲');
-  });
-
   $('#btn-top').addEventListener('click', (e) => {
-    squish(e.currentTarget);
     window.scrollTo({ top: 0, behavior: reduceMotion.matches ? 'auto' : 'smooth' });
     $('#ask-input').focus({ preventScroll: true });
   });
 
   // ---------------------------------------------------------
-  // 밤 모드
+  // 밤 모드: 저장된 선택이 없으면 시스템 설정을 따름
   // ---------------------------------------------------------
   const nightBtn = $('#btn-night');
-  function setNight(on) {
-    document.documentElement.dataset.theme = on ? 'night' : 'day';
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+  function setNight(on, save) {
+    document.documentElement.dataset.theme = on ? 'dark' : 'light';
     nightBtn.setAttribute('aria-pressed', String(on));
-    $('#night-state').textContent = on ? '밤 모드' : '낮 모드';
-    try { localStorage.setItem('ai-list-night', on ? '1' : '0'); } catch (err) { /* 저장 불가 환경 */ }
+    if (save) { try { localStorage.setItem('ai-pick-theme', on ? 'dark' : 'light'); } catch (err) { /* 저장 불가 환경 */ } }
   }
-  nightBtn.addEventListener('click', () => {
-    squish(nightBtn);
-    setNight(nightBtn.getAttribute('aria-pressed') !== 'true');
-  });
-  try { if (localStorage.getItem('ai-list-night') === '1') setNight(true); } catch (err) { /* 무시 */ }
-
-  // ---------------------------------------------------------
-  // 음악 플레이어: 사용자가 고른 오디오 파일 재생
-  // ---------------------------------------------------------
-  const player = $('#player');
-  const audio = $('#audio');
-  const fileInput = $('#audio-file');
-  const playBtn = $('#btn-play');
-  const prevBtn = $('#btn-prev');
-  const nextBtn = $('#btn-next');
-  const seek = $('#player-seek');
-  let tracks = [];
-  let cur = 0;
-
-  const fmt = (t) => (Number.isFinite(t) ? `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}` : '0:00');
-
-  function setPlayerState(st) {
-    player.dataset.state = st;
-    const label = { empty: 'Not Playing', playing: 'Now Playing', paused: 'Paused' }[st];
-    $('#player-state').textContent = label;
-    playBtn.setAttribute('aria-label', st === 'empty' ? '음악 파일 고르기' : st === 'playing' ? '일시정지' : '재생');
-    const many = tracks.length > 0;
-    prevBtn.disabled = !many;
-    nextBtn.disabled = !many;
-    seek.disabled = !many;
-  }
-
-  function loadTrack(i, autoplay) {
-    cur = (i + tracks.length) % tracks.length;
-    const t = tracks[cur];
-    audio.src = t.url;
-    $('#player-track').textContent =
-      `${t.name}${tracks.length > 1 ? ` (${cur + 1}/${tracks.length})` : ''}`;
-    seek.value = 0;
-    if (autoplay) audio.play().catch(() => setPlayerState('paused'));
-    else setPlayerState('paused');
-  }
-
-  $('#btn-file').addEventListener('click', (e) => { squish(e.currentTarget); fileInput.click(); });
-
-  fileInput.addEventListener('change', () => {
-    const files = [...fileInput.files].filter((f) => f.type.startsWith('audio/') || /\.(mp3|m4a|wav|ogg|aac|flac)$/i.test(f.name));
-    if (!files.length) return;
-    tracks.forEach((t) => URL.revokeObjectURL(t.url));
-    tracks = files.map((f) => ({ name: f.name.replace(/\.[^.]+$/, ''), url: URL.createObjectURL(f) }));
-    loadTrack(0, true);
-    fileInput.value = '';
-  });
-
-  playBtn.addEventListener('click', () => {
-    if (!tracks.length) { fileInput.click(); return; }
-    audio.paused ? audio.play() : audio.pause();
-  });
-  prevBtn.addEventListener('click', () => {
-    if (audio.currentTime > 3) { audio.currentTime = 0; return; }
-    loadTrack(cur - 1, !audio.paused);
-  });
-  nextBtn.addEventListener('click', () => loadTrack(cur + 1, !audio.paused));
-
-  audio.addEventListener('play', () => setPlayerState('playing'));
-  audio.addEventListener('pause', () => { if (tracks.length) setPlayerState('paused'); });
-  audio.addEventListener('ended', () => {
-    if (cur < tracks.length - 1) loadTrack(cur + 1, true);
-    else setPlayerState('paused');
-  });
-  audio.addEventListener('timeupdate', () => {
-    if (!audio.duration) return;
-    seek.value = (audio.currentTime / audio.duration) * 100;
-    seek.setAttribute('aria-valuetext', `${fmt(audio.currentTime)} / ${fmt(audio.duration)}`);
-  });
-  seek.addEventListener('input', () => {
-    if (audio.duration) audio.currentTime = (seek.value / 100) * audio.duration;
-  });
+  nightBtn.addEventListener('click', () => setNight(nightBtn.getAttribute('aria-pressed') !== 'true', true));
+  let savedTheme = null;
+  try { savedTheme = localStorage.getItem('ai-pick-theme'); } catch (err) { /* 무시 */ }
+  setNight(savedTheme ? savedTheme === 'dark' : systemDark.matches, false);
 
   // ---------------------------------------------------------
   // 첫 화면
   // ---------------------------------------------------------
   syncToggles();
-  setPlayerState('empty');
+  syncChips();
   renderRec();
   renderList();
 })();
