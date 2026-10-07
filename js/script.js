@@ -272,7 +272,55 @@
     askInput.placeholder = ids.length
       ? '더 적거나 아래 카드를 눌러 추가해요'
       : '예: 내일 발표인데 PPT가 하나도 없어요';
+    renderSuggest();
   }
+
+  // ---------------------------------------------------------
+  // 추천 키워드: 입력 칸 아래에서 눌러서 바로 담기
+  // 비어 있으면 자주 쓰는 상황, 적는 중이면 마지막 단어로 자동 완성
+  // ---------------------------------------------------------
+  const suggestWrap = $('#ask-suggest');
+  const POPULAR = ['research', 'present', 'study', 'videoEdit', 'image', 'meeting', 'translate', 'code', 'web', 'videoGen', 'automation', 'fact', 'voice', 'dashboard'];
+  const SUGGEST_MAX = 6;
+  let suggestMode = 'popular';
+
+  const lastWord = () => {
+    const words = askInput.value.toLowerCase().split(/\s+/);
+    return words[words.length - 1] || '';
+  };
+
+  function renderSuggest() {
+    const w = lastWord();
+    let ids = [];
+    if (w) {
+      // 한 글자일 땐 단어 첫머리만, 두 글자부터는 중간 일치도 허용
+      const hit = (word) => word.startsWith(w) || (w.length >= 2 && word.includes(w));
+      ids = SITUATIONS.filter((s) =>
+        s.label.toLowerCase().split(/[\s·]+/).some(hit) || s.keys.some(hit))
+        .map((s) => s.id);
+    }
+    suggestMode = ids.length ? 'complete' : 'popular';
+    if (!ids.length) ids = POPULAR;
+    ids = ids.filter((id) => !state.sits.has(id)).slice(0, SUGGEST_MAX);
+
+    suggestWrap.innerHTML = ids.length
+      ? `<span class="suggest__label">${suggestMode === 'complete' ? '이 키워드인가요?' : '추천 키워드'}</span>` +
+        ids.map((id) => `<button type="button" class="suggest__chip" data-suggest="${id}">
+          <span aria-hidden="true">${SIT[id].emoji}</span>${esc(SIT[id].label)}</button>`).join('')
+      : '';
+  }
+
+  suggestWrap.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-suggest]');
+    if (!b) return;
+    // 자동 완성으로 고른 거면 적다 만 단어는 지우기
+    if (suggestMode === 'complete') {
+      askInput.value = askInput.value.replace(/\S+\s*$/, '');
+      detectFromText();
+    }
+    toggleSituation(b.dataset.suggest);
+    askInput.focus();
+  });
 
   // 상황 하나 넣기/빼기 (카드·태그 공용)
   function toggleSituation(id) {
@@ -301,16 +349,18 @@
 
   // 적는 동안 바로 상황을 알아채서 태그로 보여 줌
   let typingTimer = null;
+  function detectFromText() {
+    const text = askInput.value.trim();
+    if (!text) pick.dismissed.clear();
+    const before = pickedIds().join();
+    pick.auto = new Set(readSituation(text).found.filter((id) => !pick.dismissed.has(id)));
+    syncChips();
+    if (pickedIds().join() !== before) renderRec();
+  }
   askInput.addEventListener('input', () => {
+    renderSuggest();
     clearTimeout(typingTimer);
-    typingTimer = setTimeout(() => {
-      const text = askInput.value.trim();
-      if (!text) pick.dismissed.clear();
-      const before = pickedIds().join();
-      pick.auto = new Set(readSituation(text).found.filter((id) => !pick.dismissed.has(id)));
-      syncChips();
-      if (pickedIds().join() !== before) renderRec();
-    }, 200);
+    typingTimer = setTimeout(detectFromText, 200);
   });
 
   // 빈 칸에서 지우기 키를 누르면 마지막 태그 빼기

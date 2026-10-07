@@ -310,6 +310,35 @@ a { color: inherit; }
 .ask__clear:hover { color: var(--ink); }
 .ask > .btn { flex: none; min-height: 46px; }
 
+/* 추천 키워드 */
+.suggest {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  max-width: 640px;
+  min-height: 34px;
+  margin: 12px auto 0;
+}
+.suggest__label { margin-right: 4px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.suggest__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 13.5px;
+  font-weight: 600;
+  transition: background .2s, color .2s, transform .2s var(--ease);
+}
+.suggest__chip::before { content: "+"; font-weight: 800; color: var(--accent); }
+.suggest__chip:hover { background: var(--ink); color: var(--bg); }
+.suggest__chip:active { transform: scale(.96); }
+
 /* 조건 토글 */
 .conds { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; margin-top: 16px; }
 .conds__label { font-size: 13px; font-weight: 700; color: var(--muted); margin-right: 2px; }
