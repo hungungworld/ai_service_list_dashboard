@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI 서비스 리스트 · 상황별 AI 추천</title>
+<meta name="description" content="지금 내 상황을 고르면, 조원 5명이 직접 조사하고 써 본 AI 서비스 중에서 딱 맞는 것을 추천해 주는 사이트">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Gothic+A1:wght@400;600;800&family=Titan+One&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- 털 가장자리를 보송하게 흐트러뜨리는 SVG 필터 (CSS filter:url(#fuzz)로 사용) -->
+<svg class="svg-defs" aria-hidden="true" focusable="false">
+  <filter id="fuzz" x="-4%" y="-4%" width="108%" height="108%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="2" result="n"/>
+    <feDisplacementMap in="SourceGraphic" in2="n" scale="6" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+  <filter id="fuzz-sm" x="-8%" y="-8%" width="116%" height="116%">
+    <feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="2" seed="8" result="n"/>
+    <feDisplacementMap in="SourceGraphic" in2="n" scale="4" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+</svg>
+
+<a class="skip" href="#rec">추천 결과로 건너뛰기</a>
+
+<main class="page">
+
+  <!-- ===== 대시보드 (벤토 그리드) ===== -->
+  <div class="bento">
+
+    <!-- 1. 조건 설정 카드 (정사각형) -->
+    <section class="card card--black tile-set" aria-labelledby="set-title">
+      <h2 id="set-title" class="tile-label">추천 조건</h2>
+      <div class="toggle-grid">
+        <div class="toggle">
+          <button class="puff puff--toggle" type="button" data-toggle="free" aria-pressed="false" aria-label="무료로 쓸 수 있는 것만">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12V4h8l10 10-8 8z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="7.5" cy="8.5" r="1.8" fill="currentColor"/></svg>
+          </button>
+          <span class="toggle__label" aria-hidden="true">무료만</span>
+        </div>
+        <div class="toggle">
+          <button class="puff puff--toggle" type="button" data-toggle="tried" aria-pressed="false" aria-label="조원이 직접 써본 것만">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M7.5 12.5l3 3 6-6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <span class="toggle__label" aria-hidden="true">써본 것만</span>
+        </div>
+        <div class="toggle">
+          <button class="puff puff--toggle" type="button" data-toggle="korean" aria-pressed="false" aria-label="국산·한국어 특화 서비스 우선">
+            <span class="glyph" aria-hidden="true">가</span>
+          </button>
+          <span class="toggle__label" aria-hidden="true">국산 우선</span>
+        </div>
+        <div class="toggle">
+          <button class="puff puff--toggle" type="button" data-toggle="easy" aria-pressed="false" aria-label="초보자도 쉬운 것 우선">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21v-9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M12 12c0-4 3-6.5 7-6.5 0 4-3 6.5-7 6.5zM12 14c0-3.2-2.4-5.2-5.6-5.2 0 3.2 2.4 5.2 5.6 5.2z" fill="currentColor"/></svg>
+          </button>
+          <span class="toggle__label" aria-hidden="true">초보 모드</span>
+        </div>
+      </div>
+      <p class="set-status" id="set-status" aria-live="polite">조건 없음</p>
+    </section>
+
+    <!-- 2. 음악 플레이어 카드 (정사각형) -->
+    <section class="card card--black tile-player" id="player" data-state="empty" aria-labelledby="player-title">
+      <div class="player__head">
+        <h2 id="player-title" class="lettering lettering--sm">FOCUS<br>MUSIC</h2>
+        <button class="puff puff--mini" type="button" id="btn-file" aria-label="음악 파일 고르기">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l11-2v13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="6" cy="18" r="3" fill="currentColor"/><circle cx="17" cy="16" r="3" fill="currentColor"/></svg>
+        </button>
+        <input type="file" id="audio-file" accept="audio/*" multiple hidden>
+      </div>
+      <p class="player__state" id="player-state">Not Playing</p>
+      <p class="player__track" id="player-track">작업용 음악 파일을 골라 주세요</p>
+      <div class="player__eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+      <input class="player__seek" id="player-seek" type="range" min="0" max="100" step="0.1" value="0" aria-label="재생 위치" disabled>
+      <div class="player__controls">
+        <button class="ctrl" type="button" id="btn-prev" aria-label="이전 곡" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 6L3 12l8 6zM21 6l-8 6 8 6z" fill="currentColor"/></svg>
+        </button>
+        <button class="ctrl ctrl--play" type="button" id="btn-play" aria-label="음악 파일 고르기">
+          <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12.5-7.5z" fill="currentColor"/></svg>
+          <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 5h4v14h-4zM13.5 5h4v14h-4z" fill="currentColor"/></svg>
+        </button>
+        <button class="ctrl" type="button" id="btn-next" aria-label="다음 곡" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6l8 6-8 6zM3 6l8 6-8 6z" fill="currentColor"/></svg>
+        </button>
+      </div>
+      <audio id="audio" preload="metadata"></audio>
+    </section>
+
+    <!-- 3. 타이틀 카드 -->
+    <section class="card card--white tile-title" aria-labelledby="site-title">
+      <p class="eyebrow">생성형 AI 활용법 · 조별 프로젝트</p>
+      <h1 id="site-title" class="title"><span class="title__ai">AI</span> 서비스 리스트</h1>
+      <p class="title__lead">지금 내 상황을 알려 주면, 조원들이 직접 조사하고 써 본 AI 중에서 딱 맞는 걸 골라 드려요.</p>
+      <ul class="stats" id="stats" aria-label="리스트 요약"></ul>
+    </section>
+
+    <!-- 4. 인사말 + 상황 입력 카드 (가로형) -->
+    <section class="card card--red tile-greet" aria-labelledby="greet-title">
+      <p class="sticker" aria-hidden="true">ASK<br>MY<br>AI.</p>
+      <div class="greet__body">
+        <h2 id="greet-title" class="greet__hello">좋은 하루예요</h2>
+        <form id="ask-form" class="ask" autocomplete="off">
+          <label for="ask-input" class="ask__label">지금 어떤 상황인가요?</label>
+          <div class="ask__row">
+            <input id="ask-input" class="ask__input" type="text" placeholder="예: 내일 발표인데 PPT가 하나도 없어요">
+            <button class="puff puff--white puff--go" type="submit" aria-label="이 상황으로 추천받기">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- 5. 세로형 장식 카드 A -->
+    <div class="card card--black tile-deco tile-decoA">
+      <p class="deco-letter" aria-hidden="true">TRY<br>IT<br>OUT</p>
+      <div class="deco-foot">
+        <strong id="stat-tried">0</strong>
+        <span>개는 조원이<br>직접 써봤어요</span>
+      </div>
+    </div>
+
+    <!-- 6. 세로형 장식 카드 B -->
+    <div class="card card--grey tile-deco tile-decoB">
+      <div class="deco-face" aria-hidden="true"></div>
+      <div class="deco-foot">
+        <strong id="stat-team">0</strong>
+        <span>명이 함께<br>모은 리스트</span>
+      </div>
+    </div>
+
+    <!-- 7. 밤 모드 + 장식 레터링 (가로형 알약) -->
+    <section class="card card--black tile-pill" aria-label="화면 테마">
+      <button class="puff puff--white puff--md" type="button" id="btn-night" aria-pressed="false" aria-label="밤 모드">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" fill="currentColor"/></svg>
+      </button>
+      <div class="pill__art" aria-hidden="true">
+        <span class="lettering lettering--red">PICK!</span>
+        <img src="assets/ribbon.svg" alt="">
+      </div>
+      <p class="pill__state" id="night-state">낮 모드</p>
+    </section>
+
+    <!-- 8. 상황 고르기 칩 (가로 전체) -->
+    <section class="card card--black tile-sit" aria-labelledby="sit-title">
+      <div class="sit__head">
+        <h2 id="sit-title" class="tile-label tile-label--lg">어떤 일을 하려고 하나요?</h2>
+        <p class="sit__hint">여러 개 골라도 돼요</p>
+        <button class="text-btn" type="button" id="btn-reset">처음부터</button>
+      </div>
+      <div class="chips" id="sit-chips" role="group" aria-label="상황 고르기"></div>
+    </section>
+  </div>
+
+  <!-- ===== 맞춤 추천 ===== -->
+  <section class="card card--black rec" id="rec" tabindex="-1" aria-labelledby="rec-title">
+    <div class="rec__head">
+      <h2 id="rec-title" class="lettering">FOR YOU</h2>
+      <p class="rec__summary" id="rec-summary" aria-live="polite"></p>
+    </div>
+    <div id="rec-body"></div>
+  </section>
+
+  <!-- ===== 전체 리스트 ===== -->
+  <section class="list" id="list" aria-labelledby="list-title">
+    <div class="list__head">
+      <h2 id="list-title" class="list__title"><span class="lettering lettering--ink">ALL AI</span> 전체 서비스</h2>
+      <div class="search">
+        <label for="search" class="sr-only">서비스 검색</label>
+        <input id="search" type="search" placeholder="이름, 용도로 검색 (예: 자막)">
+      </div>
+    </div>
+    <div class="filters" id="filters" role="group" aria-label="분야 필터"></div>
+    <div class="list__bar">
+      <p class="list__count" id="list-count" aria-live="polite"></p>
+      <button type="button" class="btn btn--ink" id="btn-compare-cat" hidden></button>
+    </div>
+    <p class="list__tip">카드의 <b>＋ 비교</b>를 눌러 같은 분야 AI를 2개 이상 담으면 나란히 비교할 수 있어요.</p>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <!-- ===== 하단: 캐릭터 + 바로가기 ===== -->
+  <footer class="dock">
+    <img class="dock__ribbon" src="assets/ribbon.svg" alt="">
+    <div class="card card--black dock__card">
+      <div class="dock__side">
+        <button class="puff puff--lg" type="button" id="btn-random" aria-label="오늘의 AI 하나 뽑기">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="4.5" fill="none" stroke="currentColor" stroke-width="2.2"/><circle cx="8.5" cy="8.5" r="1.6" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg>
+        </button>
+        <p>오늘의 AI<br><b>하나 뽑기</b></p>
+      </div>
+      <div class="dock__gap" aria-hidden="true"></div>
+      <div class="dock__side dock__side--end">
+        <p>처음으로<br><b>돌아가기</b></p>
+        <button class="puff puff--white puff--lg" type="button" id="btn-top" aria-label="맨 위로 이동">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V6M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+    <img class="dock__char" src="assets/character.svg" alt="">
+    <p class="credit">조사·체험: <span id="team-names"></span><br>요금은 2026년 10월 조사 기준이며 바뀔 수 있어요. 결제 전 공식 사이트에서 꼭 확인하세요.</p>
+  </footer>
+</main>
+
+<!-- 비교함 (화면 아래에 떠 있음) -->
+<aside class="card card--black tray" id="cmp-tray" aria-label="비교함" hidden></aside>
+
+<!-- 비교 팝업 -->
+<dialog class="detail detail--wide" id="compare" aria-labelledby="compare-title">
+  <div class="card card--black detail__card">
+    <button class="detail__close puff puff--mini puff--white" type="button" id="compare-close" aria-label="비교 닫기">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg>
+    </button>
+    <div class="detail__body" id="compare-body"></div>
+  </div>
+</dialog>
+
+<!-- 서비스 상세 팝업 -->
+<dialog class="detail" id="detail" aria-labelledby="detail-name">
+  <div class="card card--black detail__card">
+    <button class="detail__close puff puff--mini puff--white" type="button" id="detail-close" aria-label="닫기">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg>
+    </button>
+    <div class="detail__body" id="detail-body"></div>
+  </div>
+</dialog>
+
+<script src="js/services.js"></script>
+<script src="js/script.js"></script>
+</body>
+</html>
