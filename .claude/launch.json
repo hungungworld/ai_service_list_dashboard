@@ -1,6 +1,10 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "site", "runtimeExecutable": "python3", "runtimeArgs": ["-m", "http.server", "5510"], "port": 5510 }
+    {
+      "name": "site",
+      "url": "http://localhost:5510",
+      "port": 5510
+    }
   ]
 }

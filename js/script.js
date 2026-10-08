@@ -142,13 +142,20 @@
   arc.innerHTML = SITUATIONS.map((s) => {
     const [c1, c2] = SIT_COLORS[s.id];
     return `<button type="button" class="sit-card" data-sit="${s.id}" aria-pressed="false" style="--c1:${c1};--c2:${c2}">
-      <span class="sit-card__check" aria-hidden="true">✓</span>
+      <span class="sit-card__pick" aria-hidden="true"><span class="pick-off">＋ 담기</span><span class="pick-on">✓ 담김</span></span>
       <span class="sit-card__emoji" aria-hidden="true">${s.emoji}</span>
       <span><span class="sit-card__label">${esc(s.label)}</span><span class="sit-card__count">추천 AI ${s.picks.length}개</span></span>
     </button>`;
   }).join('');
   const cards = [...arc.querySelectorAll('.sit-card')];
-  const carousel = { offset: 0, target: null, hover: false, focus: false, drag: null, dragged: false, last: 0, visible: true };
+  const carousel = { offset: 0, target: null, hover: false, focus: false, drag: null, dragged: false, last: 0, visible: true, velocity: 0 };
+
+  const lifts = cards.map(() => 0);
+  let hoverCard = -1;
+  cards.forEach((c, i) => {
+    c.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') hoverCard = i; });
+    c.addEventListener('pointerleave', () => { if (hoverCard === i) hoverCard = -1; });
+  });
 
   const spacing = () => cards[0].offsetWidth + 22;
   const total = () => spacing() * cards.length;
@@ -161,7 +168,8 @@
       let x = (((i * sp - carousel.offset) % tot) + tot) % tot;
       if (x > tot / 2) x -= tot;
       const d = Math.max(-1.5, Math.min(1.5, x / half));
-      c.style.transform = `translateX(${x.toFixed(1)}px) translateZ(${(Math.abs(d) * 80).toFixed(1)}px) rotateY(${(-d * 26).toFixed(2)}deg)`;
+      lifts[i] += ((i === hoverCard && !carousel.dragged ? 1 : 0) - lifts[i]) * 0.25;
+      c.style.transform = `translateX(${x.toFixed(1)}px) translateZ(${(Math.abs(d) * 80).toFixed(1)}px) rotateY(${(-d * 26).toFixed(2)}deg) translateY(${(-10 * lifts[i]).toFixed(1)}px) scale(${(1 + 0.03 * lifts[i]).toFixed(3)})`;
       c.style.zIndex = String(Math.round(Math.abs(d) * 10));
     });
   }
@@ -181,7 +189,12 @@
       if (carousel.target !== null) {
         carousel.offset += (carousel.target - carousel.offset) * 0.14;
         if (Math.abs(carousel.target - carousel.offset) < 0.5) { carousel.offset = carousel.target; carousel.target = null; }
+      } else if (Math.abs(carousel.velocity) > 0.02 && !carousel.drag) {
+        // 휙 넘긴 뒤 관성으로 미끄러지다 서서히 멈춤
+        carousel.offset += carousel.velocity * dt;
+        carousel.velocity *= Math.pow(0.94, dt / 16);
       } else if (!carousel.hover && !carousel.focus && !carousel.drag) {
+        carousel.velocity = 0;
         carousel.offset += dt * 0.035;
       }
       layoutArc();
@@ -198,8 +211,8 @@
   arc.addEventListener('mouseleave', () => { carousel.hover = false; });
   arc.addEventListener('focusin', (e) => {
     carousel.focus = true;
-    const i = cards.indexOf(e.target.closest('.sit-card'));
-    if (i > -1) centerCard(i);
+    const card = e.target.closest('.sit-card');
+    if (card && card.matches(':focus-visible')) centerCard(cards.indexOf(card));
   });
   arc.addEventListener('focusout', (e) => {
     if (!arc.contains(e.relatedTarget)) carousel.focus = false;
@@ -208,27 +221,52 @@
   // 끌어서 넘기기 (조금이라도 끌었으면 클릭으로 치지 않음)
   arc.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
-    carousel.drag = { x: e.clientX, offset: carousel.offset, id: e.pointerId };
+    // 마우스로 누를 땐 포커스 이동을 막음: 포커스가 가면 브라우저가 카드를 '보여 주려고'
+    // 화면·줄을 스크롤해서 카드가 커서 밑에서 빠져나가고 클릭이 안 먹던 문제
+    if (e.pointerType === 'mouse') e.preventDefault();
+    carousel.drag = { x: e.clientX, offset: carousel.offset, id: e.pointerId, lastX: e.clientX, lastT: e.timeStamp, v: 0 };
     carousel.dragged = false;
     carousel.target = null;
+    carousel.velocity = 0;
   });
   arc.addEventListener('pointermove', (e) => {
     const d = carousel.drag;
     if (!d) return;
     const dx = e.clientX - d.x;
-    if (!carousel.dragged && Math.abs(dx) > 6) {
+    if (!carousel.dragged && Math.abs(dx) > 12) {
       carousel.dragged = true;
       arc.classList.add('is-dragging');
       arc.setPointerCapture(d.id);
     }
     if (carousel.dragged) carousel.offset = d.offset - dx;
+    // 손을 뗄 때 쓸 속도 (최근 움직임 위주로 부드럽게)
+    const ms = e.timeStamp - d.lastT;
+    if (ms > 0) d.v = d.v * 0.6 + (-(e.clientX - d.lastX) / ms) * 0.4;
+    d.lastX = e.clientX;
+    d.lastT = e.timeStamp;
   });
-  const endDrag = () => {
+  const endDrag = (e) => {
+    const d = carousel.drag;
+    if (d && carousel.dragged && e.timeStamp - d.lastT < 80) {
+      carousel.velocity = Math.max(-4, Math.min(4, d.v));
+    }
     carousel.drag = null;
     arc.classList.remove('is-dragging');
   };
   arc.addEventListener('pointerup', endDrag);
   arc.addEventListener('pointercancel', endDrag);
+  // 트랙패드 두 손가락 좌우 쓸기(마우스는 Shift+휠)로 넘기기.
+  // macOS가 주는 관성 스크롤을 그대로 따라가서 휙 넘기면 쭉 미끄러짐. 세로 쓸기는 페이지 스크롤 그대로.
+  arc.addEventListener('wheel', (e) => {
+    const horizontal = Math.abs(e.deltaX) > Math.abs(e.deltaY);
+    const dx = horizontal ? e.deltaX : (e.shiftKey ? e.deltaY : 0);
+    if (!dx) return;
+    e.preventDefault();
+    carousel.target = null;
+    carousel.velocity = 0;
+    carousel.offset += dx * (e.deltaMode === 1 ? 32 : 1);
+  }, { passive: false });
+
   arc.addEventListener('click', (e) => {
     if (carousel.dragged) { e.stopPropagation(); e.preventDefault(); carousel.dragged = false; }
   }, true);
